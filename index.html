@@ -20,7 +20,7 @@
     <div class="topbar-actions">
       <span id="syncStatus" class="sync" title="סטטוס סנכרון">מקומי</span>
       <button id="btnSettings" class="icon-btn" title="הגדרות">⚙️</button>
-      <button id="btnNew" class="btn primary">+ פרויקט חדש</button>
+      <button id="btnNew" class="btn primary edit-only">+ פרויקט חדש</button>
     </div>
   </header>
 
@@ -100,7 +100,7 @@
         <fieldset>
           <legend>משימות</legend>
           <ul id="tasks" class="tasks"></ul>
-          <div class="add-row">
+          <div class="add-row edit-only">
             <input id="newTask" placeholder="משימה חדשה...">
             <button type="button" id="btnAddTask" class="btn">הוסף</button>
           </div>
@@ -108,7 +108,7 @@
 
         <fieldset>
           <legend>יומן עדכונים</legend>
-          <div class="add-row">
+          <div class="add-row edit-only">
             <input id="newNote" placeholder="מה התחדש?">
             <button type="button" id="btnAddNote" class="btn">הוסף</button>
           </div>
@@ -116,10 +116,10 @@
         </fieldset>
       </div>
       <footer class="sheet-foot">
-        <button type="button" id="btnDelete" class="btn danger">מחק</button>
+        <button type="button" id="btnDelete" class="btn danger edit-only">מחק</button>
         <span class="spacer"></span>
-        <button type="button" class="btn" data-close>ביטול</button>
-        <button type="submit" class="btn primary">שמור</button>
+        <button type="button" class="btn" data-close>סגור</button>
+        <button type="submit" class="btn primary edit-only">שמור</button>
       </footer>
     </form>
   </dialog>
@@ -132,14 +132,18 @@
         <button type="button" class="icon-btn" data-close>✕</button>
       </header>
       <div class="sheet-body">
-        <p class="hint">
+        <p class="hint view-note">
+          👁 <b>מצב צפייה בלבד.</b> אתה רואה את הפרויקטים דרך קישור שיתוף ולא ניתן לערוך אותם.
+          הנתונים מתעדכנים אוטומטית. כדי לצאת ממצב צפייה ולמחוק את הנתונים מהדפדפן, לחץ "נתק".
+        </p>
+        <p class="hint edit-only">
           כדי לראות את אותם הנתונים בטלפון ובמחשב, הנתונים נשמרים כקובץ JSON בריפוזיטורי <b>פרטי</b> ב-GitHub.
           ראה הוראות בקובץ README. בלי הגדרה – הנתונים נשמרים רק בדפדפן הנוכחי.
         </p>
-        <label>GitHub Token (Fine-grained, הרשאת Contents: Read & Write)
+        <label class="edit-only">GitHub Token (Fine-grained, הרשאת Contents: Read & Write)
           <input name="token" type="password" dir="ltr" autocomplete="off">
         </label>
-        <div class="row">
+        <div class="row edit-only">
           <label>בעלים (שם משתמש)
             <input name="owner" dir="ltr" placeholder="my-user">
           </label>
@@ -147,7 +151,7 @@
             <input name="repo" dir="ltr" placeholder="my-projects-data">
           </label>
         </div>
-        <div class="row">
+        <div class="row edit-only">
           <label>נתיב קובץ
             <input name="path" dir="ltr" value="projects.json">
           </label>
@@ -156,24 +160,49 @@
           </label>
         </div>
         <div class="btn-row">
-          <button type="button" id="btnTestSync" class="btn">בדוק חיבור וטען</button>
+          <button type="button" id="btnTestSync" class="btn edit-only">בדוק חיבור וטען</button>
           <button type="button" id="btnDisconnect" class="btn danger">נתק סנכרון</button>
+        </div>
+        <div class="edit-only">
+          <hr>
+          <h3>שיתוף לצפייה (למשל למנהל)</h3>
+          <p class="hint">
+            צור טוקן Fine-grained <b>נוסף</b> עם הרשאת <b>Contents: Read-only</b> בלבד, רק לריפוזיטורי הנתונים,
+            הדבק אותו כאן וצור קישור. מי שיפתח את הקישור יראה את הפרויקטים ולא יוכל לשנות אותם.
+            כדי לבטל את הגישה, מחק את הטוקן ב-GitHub.
+          </p>
+          <label>טוקן לקריאה בלבד
+            <input id="viewToken" type="password" dir="ltr" autocomplete="off">
+          </label>
+          <div class="btn-row">
+            <button type="button" id="btnMakeLink" class="btn">צור קישור צפייה</button>
+          </div>
+          <div id="shareRow" class="add-row" hidden>
+            <input id="shareLink" readonly dir="ltr">
+            <button type="button" id="btnCopyLink" class="btn">העתק</button>
+          </div>
         </div>
         <hr>
         <h3>גיבוי</h3>
         <div class="btn-row">
           <button type="button" id="btnExport" class="btn">ייצוא JSON</button>
           <button type="button" id="btnExportCsv" class="btn">ייצוא לאקסל (CSV)</button>
-          <label class="btn">ייבוא JSON<input id="fileImport" type="file" accept=".json,application/json" hidden></label>
+          <label class="btn edit-only">ייבוא JSON<input id="fileImport" type="file" accept=".json,application/json" hidden></label>
         </div>
       </div>
       <footer class="sheet-foot">
         <span class="spacer"></span>
         <button type="button" class="btn" data-close>סגור</button>
-        <button type="submit" class="btn primary">שמור הגדרות</button>
+        <button type="submit" class="btn primary edit-only">שמור הגדרות</button>
       </footer>
     </form>
   </dialog>
+
+  <aside id="staleBar" class="stale-bar" hidden>
+    <span class="stale-icon">⏰</span>
+    <div class="stale-text"></div>
+    <button type="button" id="btnStaleClose" class="x" title="הסתר להיום">✕</button>
+  </aside>
 
   <div id="toast" class="toast" hidden></div>
 

@@ -167,11 +167,36 @@ h3 { margin: 0; font-size: 1rem; }
   z-index: 100; box-shadow: var(--shadow); max-width: calc(100vw - 32px);
 }
 
+/* Stale projects reminder */
+.stale-bar {
+  position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); inset-inline: 12px;
+  max-width: 720px; margin: 0 auto; z-index: 90;
+  display: flex; align-items: flex-start; gap: 8px;
+  background: #fef3c7; color: #78350f; border: 1px solid #fcd34d;
+  padding: 8px 12px; border-radius: 10px; font-size: .85rem; box-shadow: var(--shadow);
+}
+.stale-bar .stale-text { flex: 1; line-height: 1.5; }
+.stale-bar a { color: inherit; font-weight: 700; }
+.stale-bar .days { opacity: .75; }
+.stale-bar .x { background: none; border: 0; color: inherit; cursor: pointer; font-size: .9rem; padding: 0 2px; }
+@media (prefers-color-scheme: dark) {
+  .stale-bar { background: #422006; color: #fde68a; border-color: #854d0e; }
+}
+main { padding-bottom: 80px; }
+
+/* View-only (shared link) mode */
+.view-note { display: none; }
+.view-only .view-note { display: block; }
+.view-only .edit-only { display: none !important; }
+.view-only .tasks .x, .view-only .notes .x { display: none; }
+.view-only #formProject :is(input, select, textarea):disabled { opacity: 1; color: var(--text); cursor: default; }
+.sync.view { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
+
 /* Mobile */
 @media (max-width: 640px) {
   .topbar h1 { font-size: 1rem; }
   #btnNew { padding: 8px 10px; }
-  main { padding: 12px; }
+  main { padding: 12px 12px 80px; }
   .grid { grid-template-columns: 1fr; }
   .toolbar select { flex: 1 1 45%; }
   .row { grid-template-columns: 1fr; }

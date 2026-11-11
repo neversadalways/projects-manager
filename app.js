@@ -18,6 +18,8 @@ const PRIORITIES = [
 ];
 const LS_DATA = 'pm.data.v1';
 const LS_SETTINGS = 'pm.settings.v1';
+const LS_STALE_DISMISS = 'pm.staleDismissed.v1';
+const STALE_DAYS = 4; // days without change before a project with open tasks is flagged
 
 const statusOf = id => STATUSES.find(s => s.id === id) || STATUSES[0];
 const priorityOf = id => PRIORITIES.find(p => p.id === Number(id)) || PRIORITIES[2];
@@ -60,6 +62,9 @@ function persist() {
   scheduleSync();
 }
 
+const viewOnly = () => !!settings.viewOnly;
+const syncOkLabel = () => viewOnly() ? ['view', '👁 צפייה בלבד'] : ['ok', 'מסונכרן'];
+
 // ---------- GitHub sync ----------
 const ghEnabled = () => settings.token && settings.owner && settings.repo && settings.path;
 const ghUrl = () => `https://api.github.com/repos/${encodeURIComponent(settings.owner)}/${encodeURIComponent(settings.repo)}/contents/${settings.path.split('/').map(encodeURIComponent).join('/')}`;
@@ -86,6 +91,7 @@ async function ghLoad() {
   if (!ghEnabled()) { setSync('', 'מקומי'); return false; }
   setSync('busy', 'טוען...');
   const res = await fetch(`${ghUrl()}?ref=${encodeURIComponent(settings.branch || 'main')}&t=${Date.now()}`, { headers: ghHeaders(), cache: 'no-store' });
+  if (res.status === 404 && viewOnly()) throw new Error('קובץ הנתונים לא נמצא. בקש קישור צפייה חדש.');
   if (res.status === 404) {
     // File doesn't exist yet – will be created on first save
     ghSha = null;
@@ -101,13 +107,13 @@ async function ghLoad() {
     data = remote;
     safeSet(LS_DATA, data);
   }
-  setSync('ok', 'מסונכרן');
+  setSync(...syncOkLabel());
   render();
   return true;
 }
 
 async function ghSave() {
-  if (!ghEnabled()) return;
+  if (!ghEnabled() || viewOnly()) return;
   setSync('busy', 'שומר...');
   const body = {
     message: `עדכון פרויקטים ${new Date().toLocaleString('he-IL')}`,
@@ -134,7 +140,7 @@ async function ghSave() {
 
 let syncTimer = null;
 function scheduleSync() {
-  if (!ghEnabled()) return;
+  if (!ghEnabled() || viewOnly()) return;
   setSync('busy', 'ממתין לשמירה...');
   clearTimeout(syncTimer);
   syncTimer = setTimeout(() => {
@@ -239,6 +245,34 @@ function render() {
   const list = filtered();
   $('#list').innerHTML = list.map(cardHtml).join('');
   $('#empty').hidden = list.length > 0;
+  renderStaleBar();
+}
+
+// ---------- Stale projects reminder ----------
+const daysSince = iso => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : Infinity;
+
+function staleProjects() {
+  return data.projects
+    .filter(p => !['done', 'frozen'].includes(p.status))
+    .filter(p => (p.tasks || []).some(t => !t.done))
+    .filter(p => daysSince(p.updatedAt || p.createdAt) >= STALE_DAYS)
+    .sort((a, b) => (a.updatedAt || '').localeCompare(b.updatedAt || ''));
+}
+
+function renderStaleBar() {
+  const bar = $('#staleBar');
+  const stale = staleProjects();
+  if (!stale.length || safeGet(LS_STALE_DISMISS, '') === today()) { bar.hidden = true; return; }
+  const shown = stale.slice(0, 3);
+  const more = stale.length - shown.length;
+  bar.querySelector('.stale-text').innerHTML =
+    `${stale.length === 1 ? 'פרויקט אחד עם משימות פתוחות' : `${stale.length} פרויקטים עם משימות פתוחות`} לא עודכן ${STALE_DAYS}+ ימים: ` +
+    shown.map(p => {
+      const d = daysSince(p.updatedAt || p.createdAt);
+      return `<a href="#" data-id="${p.id}">${esc(p.name)}</a> <span class="days">(${d === Infinity ? '?' : d} ימים)</span>`;
+    }).join(', ') +
+    (more > 0 ? ` ועוד ${more}` : '');
+  bar.hidden = false;
 }
 
 // ---------- Project editor ----------
@@ -252,7 +286,9 @@ function openEditor(id) {
     startDate: today(), dueDate: '', spec: '', tags: [], links: [], progress: 0,
     autoProgress: false, tasks: [], notes: [],
   };
-  $('#dlgTitle').textContent = src ? 'עריכת פרויקט' : 'פרויקט חדש';
+  if (!src && viewOnly()) return;
+  $('#dlgTitle').textContent = viewOnly() ? 'פרטי פרויקט' : src ? 'עריכת פרויקט' : 'פרויקט חדש';
+  form.querySelectorAll('input, select, textarea').forEach(el => (el.disabled = viewOnly()));
   $('#btnDelete').hidden = !src;
   const f = form.elements;
   f.name.value = editing.name;
@@ -289,7 +325,7 @@ function updateProgressUI() {
 function renderTasks() {
   $('#tasks').innerHTML = editing.tasks.map((t, i) => `
     <li class="${t.done ? 'done' : ''}">
-      <input type="checkbox" data-i="${i}" ${t.done ? 'checked' : ''}>
+      <input type="checkbox" data-i="${i}" ${t.done ? 'checked' : ''} ${viewOnly() ? 'disabled' : ''}>
       <span>${esc(t.text)}</span>
       <button type="button" class="x" data-del-task="${i}" title="מחק">✕</button>
     </li>`).join('');
@@ -325,6 +361,7 @@ function addNote() {
 }
 
 function saveEditor() {
+  if (viewOnly()) { dlg.close(); return; }
   const f = form.elements;
   const name = f.name.value.trim();
   if (!name) { f.name.focus(); return; }
@@ -362,6 +399,48 @@ function saveEditor() {
   dlg.close();
   persist();
   toast('נשמר ✓');
+}
+
+// ---------- View-only share link ----------
+const b64url = str => b64encode(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64url = str => b64decode(str.replace(/-/g, '+').replace(/_/g, '/'));
+
+function applyMode() {
+  document.body.classList.toggle('view-only', viewOnly());
+}
+
+// Opening .../#view=<payload> switches this browser to read-only mode with the embedded settings.
+// The payload is in the URL fragment, which browsers never send to a server.
+function applyShareLink() {
+  const m = location.hash.match(/^#view=([\w-]+)$/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  let s;
+  try {
+    s = JSON.parse(unb64url(m[1]));
+    if (!s.t || !s.o || !s.r) throw new Error();
+  } catch { toast('קישור הצפייה לא תקין'); return; }
+  if (settings.token && !settings.viewOnly &&
+      !confirm('הקישור יחליף את חיבור העריכה שלך בדפדפן הזה במצב צפייה בלבד. להמשיך?')) return;
+  settings = { token: s.t, owner: s.o, repo: s.r, path: s.p || 'projects.json', branch: s.b || 'main', viewOnly: true };
+  safeSet(LS_SETTINGS, settings);
+  ghSha = null;
+}
+
+async function makeShareLink() {
+  const token = $('#viewToken').value.trim();
+  if (!ghEnabled()) { toast('קודם הגדר וחבר את הסנכרון ל-GitHub'); return; }
+  if (!token) { $('#viewToken').focus(); return; }
+  if (token === settings.token) { toast('אל תשתף את טוקן העריכה. צור טוקן נפרד עם הרשאת Read-only.', 5000); return; }
+  // Make sure the token can actually read the data file
+  const res = await fetch(`${ghUrl()}?ref=${encodeURIComponent(settings.branch || 'main')}`, {
+    headers: { ...ghHeaders(), Authorization: `Bearer ${token}` }, cache: 'no-store',
+  }).catch(() => null);
+  if (!res || !res.ok) { toast(`הטוקן לא מצליח לקרוא את קובץ הנתונים (${res ? res.status : 'רשת'})`, 5000); return; }
+  const payload = { t: token, o: settings.owner, r: settings.repo, p: settings.path, b: settings.branch || 'main' };
+  $('#shareLink').value = `${location.origin}${location.pathname}#view=${b64url(JSON.stringify(payload))}`;
+  $('#shareRow').hidden = false;
+  $('#viewToken').value = '';
 }
 
 // ---------- Export / import ----------
@@ -440,6 +519,7 @@ function wire() {
   const sf = $('#formSettings');
   $('#btnSettings').onclick = () => {
     for (const k of ['token', 'owner', 'repo', 'path', 'branch']) sf.elements[k].value = settings[k] || '';
+    $('#shareRow').hidden = true;
     $('#dlgSettings').showModal();
   };
   const readSettings = () => {
@@ -451,12 +531,28 @@ function wire() {
   sf.onsubmit = e => { e.preventDefault(); readSettings(); $('#dlgSettings').close(); syncNow(); };
   $('#btnTestSync').onclick = () => { readSettings(); syncNow(); };
   $('#btnDisconnect').onclick = () => {
+    const wasViewOnly = viewOnly();
     settings = { token: '', owner: '', repo: '', path: 'projects.json', branch: 'main' };
     safeSet(LS_SETTINGS, settings);
     ghSha = null;
     $('#dlgSettings').close();
     setSync('', 'מקומי');
-    toast('הסנכרון נותק. הנתונים נשארו בדפדפן.');
+    applyMode();
+    if (wasViewOnly) {
+      // Shared data isn't ours – don't leave it behind in this browser
+      data = { projects: [], updatedAt: null };
+      safeSet(LS_DATA, data);
+      render();
+      toast('יצאת ממצב צפייה והנתונים נמחקו מהדפדפן.');
+    } else {
+      toast('הסנכרון נותק. הנתונים נשארו בדפדפן.');
+    }
+  };
+  $('#btnMakeLink').onclick = makeShareLink;
+  $('#btnCopyLink').onclick = async () => {
+    const inp = $('#shareLink');
+    try { await navigator.clipboard.writeText(inp.value); toast('הקישור הועתק ✓'); }
+    catch { inp.select(); toast('סמן והעתק את הקישור ידנית'); }
   };
   $('#btnExport').onclick = () => download(`projects-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
   $('#btnExportCsv').onclick = exportCsv;
@@ -474,10 +570,20 @@ function wire() {
     e.target.value = '';
   };
 
+  $('#staleBar').onclick = e => {
+    const a = e.target.closest('a[data-id]');
+    if (a) { e.preventDefault(); openEditor(a.dataset.id); }
+  };
+  $('#btnStaleClose').onclick = () => { safeSet(LS_STALE_DISMISS, today()); renderStaleBar(); };
+
   // Refresh from GitHub when returning to the app (e.g. after editing on another device)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && ghEnabled() && !syncTimer && !dlg.open) syncNow(true);
   });
+  // In view-only mode, also refresh periodically while the page is open
+  setInterval(() => {
+    if (viewOnly() && document.visibilityState === 'visible' && !dlg.open) syncNow(true);
+  }, 5 * 60 * 1000);
 }
 
 async function syncNow(quiet = false) {
@@ -491,6 +597,8 @@ async function syncNow(quiet = false) {
   }
 }
 
+applyShareLink();
+applyMode();
 wire();
 render();
 syncNow(true);
